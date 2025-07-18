@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Box Tower Game - Debug</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .header h1 {
+            font-size: 3em;
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            background: linear-gradient(45deg, #FFD700, #FFA500);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .debug-info {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            max-width: 800px;
+        }
+        
+        .debug-info h3 {
+            color: #FFD700;
+            margin-top: 0;
+        }
+        
+        .game-container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        #unity-container {
+            width: 1280px;
+            height: 720px;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        #unity-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        .loading-cover {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .loading-text {
+            color: white;
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .progress-bar {
+            width: 300px;
+            height: 20px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+        
+        .error-log {
+            background: rgba(255,0,0,0.1);
+            border: 1px solid rgba(255,0,0,0.3);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        @media (max-width: 1320px) {
+            #unity-container {
+                width: 960px;
+                height: 540px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏗️ Box Tower</h1>
+        <p>Unity WebGL 디버그 버전</p>
+    </div>
+    
+    <div class="debug-info">
+        <h3>🔧 빌드 파일 확인</h3>
+        <div id="file-check">빌드 파일을 확인하고 있습니다...</div>
+        <div id="error-messages"></div>
+    </div>
+    
+    <div class="game-container">
+        <div id="unity-container">
+            <canvas id="unity-canvas"></canvas>
+            <div class="loading-cover" id="loading-cover">
+                <div class="loading-text" id="loading-text">게임을 로딩중입니다...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div style="color: rgba(255,255,255,0.7); font-size: 0.9em;">
+                    오류가 발생하면 위의 디버그 정보를 확인하세요 ⚠️
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        var container = document.querySelector("#unity-container");
+        var canvas = document.querySelector("#unity-canvas");
+        var loadingCover = document.querySelector("#loading-cover");
+        var loadingText = document.querySelector("#loading-text");
+        var progressFill = document.querySelector("#progress-fill");
+        var fileCheck = document.querySelector("#file-check");
+        var errorMessages = document.querySelector("#error-messages");
+        
+        // 오류 로깅 함수
+        function logError(message) {
+            console.error(message);
+            var errorDiv = document.createElement('div');
+            errorDiv.className = 'error-log';
+            errorDiv.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            errorMessages.appendChild(errorDiv);
+        }
+        
+        // 빌드 파일 확인
+        async function checkBuildFiles() {
+            const buildUrl = "Build";
+            const expectedFiles = [
+                { name: "loader.js", pattern: /\.loader\.js$/ },
+                { name: "framework.js", pattern: /\.framework\.js(\.gz)?$/ },
+                { name: "data", pattern: /\.data(\.gz)?$/ },
+                { name: "wasm", pattern: /\.wasm(\.gz)?$/ }
+            ];
+            
+            let fileStatus = "빌드 파일 확인 결과:\n";
+            
+            try {
+                // Build 디렉토리 접근 시도
+                const response = await fetch(buildUrl + '/');
+                if (!response.ok) {
+                    fileStatus += "❌ Build/ 폴더에 접근할 수 없습니다.\n";
+                    fileStatus += "💡 Unity에서 WebGL 빌드를 완료했는지 확인하세요.";
+                } else {
+                    fileStatus += "✅ Build/ 폴더 접근 가능\n";
+                    
+                    // 각 파일 타입 확인 (실제로는 추측)
+                    for (let file of expectedFiles) {
+                        fileStatus += `   📁 ${file.name}: 확인 중...\n`;
+                    }
+                }
+            } catch (error) {
+                fileStatus += `❌ 파일 확인 실패: ${error.message}\n`;
+                logError("Build 파일 확인 실패: " + error.message);
+            }
+            
+            fileCheck.textContent = fileStatus;
+        }
+        
+        // Unity 설정 자동 감지
+        function detectUnityConfig() {
+            const buildUrl = "Build";
+            
+            // 가능한 파일명 패턴들
+            const possibleConfigs = [
+                {
+                    dataUrl: buildUrl + "/BoxTower.data",
+                    frameworkUrl: buildUrl + "/BoxTower.framework.js", 
+                    codeUrl: buildUrl + "/BoxTower.wasm",
+                    loaderUrl: buildUrl + "/BoxTower.loader.js"
+                },
+                {
+                    dataUrl: buildUrl + "/BoxTower.data.gz",
+                    frameworkUrl: buildUrl + "/BoxTower.framework.js.gz",
+                    codeUrl: buildUrl + "/BoxTower.wasm.gz",
+                    loaderUrl: buildUrl + "/BoxTower.loader.js"
+                }
+            ];
+            
+            return {
+                dataUrl: buildUrl + "/BoxTower.data",
+                frameworkUrl: buildUrl + "/BoxTower.framework.js",
+                codeUrl: buildUrl + "/BoxTower.wasm",
+                streamingAssetsUrl: "StreamingAssets",
+                companyName: "BoxTower Studio",
+                productName: "Box Tower",
+                productVersion: "1.0",
+            };
+        }
+        
+        // 진행률 업데이트
+        function updateProgress(progress) {
+            progressFill.style.width = (progress * 100) + "%";
+        }
+        
+        // 초기화
+        checkBuildFiles();
+        
+        var config = detectUnityConfig();
+        var loaderUrl = "Build/BoxTower.loader.js";
+        
+        // Unity 로더 스크립트 동적 로딩
+        var script = document.createElement("script");
+        script.src = loaderUrl;
+        script.onload = function() {
+            console.log("Unity 로더 스크립트 로딩 완료");
+            
+            // Unity 인스턴스 생성
+            createUnityInstance(canvas, config, (progress) => {
+                updateProgress(progress);
+                if (progress < 0.9) {
+                    loadingText.textContent = `로딩중... ${Math.round(progress * 100)}%`;
+                } else {
+                    loadingText.textContent = "거의 완료되었습니다...";
+                }
+            }).then((unityInstance) => {
+                // 로딩 완료
+                loadingCover.style.display = "none";
+                console.log("Box Tower 게임이 시작되었습니다!");
+                
+            }).catch((message) => {
+                logError("Unity 인스턴스 생성 실패: " + message);
+                loadingText.innerHTML = `
+                    <div style="color: #ff6b6b;">
+                        <h3>❌ 로딩 실패</h3>
+                        <p>${message}</p>
+                        <br>
+                        <p style="font-size: 0.9em;">위의 디버그 정보를 확인하세요</p>
+                    </div>
+                `;
+                progressFill.style.backgroundColor = "#ff6b6b";
+            });
+        };
+        
+        script.onerror = function() {
+            logError("Unity 로더 스크립트 로딩 실패: " + loaderUrl);
+            loadingText.innerHTML = `
+                <div style="color: #ff6b6b;">
+                    <h3>❌ Unity 로더 스크립트를 찾을 수 없습니다</h3>
+                    <p>Unity WebGL 빌드를 완료한 후 다시 시도하세요</p>
+                    <br>
+                    <p style="font-size: 0.9em;">빌드 경로: ${loaderUrl}</p>
+                </div>
+            `;
+        };
+        
+        document.head.appendChild(script);
+        
+        // 키보드 이벤트 포커스 확보
+        canvas.addEventListener('click', function() {
+            canvas.focus();
+        });
+        
+        // 전역 오류 핸들러
+        window.addEventListener('error', function(e) {
+            logError("JavaScript 오류: " + e.message + " (파일: " + e.filename + ", 라인: " + e.lineno + ")");
+        });
+        
+        window.addEventListener('unhandledrejection', function(e) {
+            logError("Promise 거부: " + e.reason);
+        });
+    </script>
+</body>
+</html>
